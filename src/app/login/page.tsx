@@ -53,22 +53,25 @@ export default function LoginPage() {
           setError(error.message || 'Failed to sign in')
         }
       } else {
-<<<<<<< HEAD
-        // ✅ LOGIN SUCCESS - IMMEDIATE REDIRECT
-        console.log('✅ LOGIN SUCCESS - REDIRECTING NOW')
-        alert('Login successful! Redirecting to home page...')
-        window.location = '/' as any
-=======
-        // Successful login - redirect to home page
-        console.log('Login successful, redirecting to home page...')
+        // 🚨 NUCLEAR OPTION - FORCE REDIRECT
+        console.log('🚨 LOGIN SUCCESS - NUCLEAR REDIRECT')
 
-        // Small delay to ensure session is set
+        // Method 1: Create form and submit
+        const form = document.createElement('form')
+        form.method = 'GET'
+        form.action = '/'
+        document.body.appendChild(form)
+        form.submit()
+
+        // Method 2: Backup redirect
         setTimeout(() => {
-          router.push('/')
-          // Force page refresh to ensure auth state is updated
-          window.location.href = '/'
-        }, 500)
->>>>>>> 31531e0 (update)
+          window.top!.location.href = '/'
+        }, 100)
+
+        // Method 3: Final backup
+        setTimeout(() => {
+          document.location.href = '/'
+        }, 200)
       }
     } catch (err: any) {
       console.error('Login error:', err)

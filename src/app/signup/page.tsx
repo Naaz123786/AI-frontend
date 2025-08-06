@@ -62,9 +62,25 @@ export default function SignupPage() {
           setSuccess('Account created successfully!')
         }
 
+        // 🚨 NUCLEAR OPTION - FORCE REDIRECT
+        console.log('🚨 SIGNUP SUCCESS - NUCLEAR REDIRECT')
+
+        // Method 1: Create form and submit
+        const form = document.createElement('form')
+        form.method = 'GET'
+        form.action = '/'
+        document.body.appendChild(form)
+        form.submit()
+
+        // Method 2: Backup redirect
         setTimeout(() => {
-          router.push('/')
-        }, 3000)
+          window.top!.location.href = '/'
+        }, 100)
+
+        // Method 3: Final backup
+        setTimeout(() => {
+          document.location.href = '/'
+        }, 200)
       }
     } catch (err: any) {
       console.error('Signup error:', err)
