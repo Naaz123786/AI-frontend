@@ -216,44 +216,65 @@ export default function InterviewPage() {
               setDetectedQuestion(true);
               lastQuestionRef.current = currentTranscript.trim();
 
-              // Process transcripts for submission - ONLY for final transcripts to ensure complete questions
+              // Smart auto-submission logic for complete questions
               if (autoSubmitRef.current) { // Always true in auto mode
-                // ONLY submit final transcripts - ignore interim to prevent incomplete questions
-                if (finalTranscript && finalTranscript.trim().length > 15) {
-                  console.log('🚀 Auto-submitting FINAL transcript in live mode...');
-                  console.log('🔍 Final transcript:', finalTranscript.trim());
+
+                // Strategy: Wait for speech to pause, then submit the complete question
+                if (finalTranscript && finalTranscript.trim().length > 8) {
+                  console.log('🎯 FINAL transcript detected - preparing auto-submission');
+                  console.log('📝 Final question:', finalTranscript.trim());
 
                   // Clear any existing timeout to prevent multiple submissions
                   if (debounceTimeoutRef.current) {
                     clearTimeout(debounceTimeoutRef.current);
                   }
 
-                  // Wait longer for complete question capture
+                  // Wait for speech to complete before submitting
                   debounceTimeoutRef.current = setTimeout(() => {
                     const currentLiveMode = liveModeRef.current;
                     const currentLoading = loadingRef.current;
                     const currentAutoSubmit = autoSubmitRef.current;
 
-                    console.log('⏰ Final transcript auto-submit timeout executed');
-                    console.log('🔍 Checking conditions:', {
+                    console.log('🚀 Auto-submitting COMPLETE question after pause');
+                    console.log('🔍 Final conditions:', {
                       currentLiveMode,
                       currentLoading,
                       currentAutoSubmit,
-                      transcript: finalTranscript.trim()
+                      question: finalTranscript.trim()
                     });
 
                     if (currentLiveMode && !currentLoading && currentAutoSubmit && finalTranscript.trim()) {
-                      console.log('🎯 Auto-submitting COMPLETE question:', finalTranscript.trim());
+                      console.log('✅ Submitting complete question:', finalTranscript.trim());
                       askAI(finalTranscript.trim());
                     } else {
                       console.log('❌ Auto-submit cancelled - conditions not met');
                     }
-                  }, 2000); // Longer delay to ensure complete question capture
+                  }, 1500); // Wait 1.5 seconds after final transcript for complete capture
+
+                } else if (interimTranscript && currentTranscript.trim().length > 25) {
+                  // For long interim results, prepare for potential submission but wait longer
+                  console.log('🟡 Long interim transcript detected, monitoring for completion...');
+                  console.log('📝 Interim text:', currentTranscript.trim());
+
+                  // Clear existing timeout
+                  if (debounceTimeoutRef.current) {
+                    clearTimeout(debounceTimeoutRef.current);
+                  }
+
+                  // Set a longer timeout for interim results - only submit if no final comes
+                  debounceTimeoutRef.current = setTimeout(() => {
+                    const currentLiveMode = liveModeRef.current;
+                    const currentLoading = loadingRef.current;
+                    const currentAutoSubmit = autoSubmitRef.current;
+
+                    // Only submit if we're still in live mode and no final transcript came through
+                    if (currentLiveMode && !currentLoading && currentAutoSubmit && currentTranscript.trim().length > 15) {
+                      console.log('⏰ Submitting long interim as complete question:', currentTranscript.trim());
+                      askAI(currentTranscript.trim());
+                    }
+                  }, 3000); // Longer wait for interim results
                 } else {
-                  // For interim results, just update the display but don't submit
-                  console.log('🟡 Interim transcript detected, waiting for final result...');
-                  console.log('📝 Current interim text:', currentTranscript.trim());
-                  // NO SUBMISSION for interim results - wait for final only
+                  console.log('📝 Short transcript, waiting for more speech...');
                 }
               }
 
