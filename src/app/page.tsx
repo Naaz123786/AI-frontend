@@ -29,19 +29,12 @@ export default function Home() {
 
     if (user) {
       console.log('User is logged in, redirecting to interview');
-<<<<<<< HEAD
       // Force redirect with window.location for immediate effect
       window.location.href = '/interview';
     } else {
       console.log('User not logged in, redirecting to login');
       // Force redirect with window.location for immediate effect
       window.location.href = '/login';
-=======
-      router.push('/interview');
-    } else {
-      console.log('User not logged in, redirecting to login');
-      router.push('/login');
->>>>>>> 31531e0 (update)
     }
   };
 
