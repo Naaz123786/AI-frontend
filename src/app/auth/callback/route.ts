@@ -30,10 +30,10 @@ export async function GET(request: NextRequest) {
 
             if (data.session) {
                 console.log('✅ Google OAuth successful! User:', data.user?.email)
-                console.log('🎉 Redirecting to success page...')
+                console.log('🎉 Redirecting to redirect page...')
 
-                // Create redirect response to success page for better auth state sync
-                const response = NextResponse.redirect(`${requestUrl.origin}/auth/success`)
+                // Use redirect page for better control
+                const response = NextResponse.redirect(`${requestUrl.origin}/auth/redirect`)
 
                 // Set session cookies for better client-side sync
                 if (data.session.access_token) {
@@ -54,10 +54,11 @@ export async function GET(request: NextRequest) {
                     })
                 }
 
-                // Set cache headers to prevent caching
+                // Set additional headers to ensure proper redirect
                 response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
                 response.headers.set('Pragma', 'no-cache')
                 response.headers.set('Expires', '0')
+                response.headers.set('Location', `${requestUrl.origin}/`)
 
                 return response
             } else {

@@ -1,33 +1,65 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useRouter } from 'next/navigation'
 
 export default function AuthSuccess() {
-    const { user, loading } = useAuth()
+    const { user, loading, refreshSession } = useAuth()
+    const router = useRouter()
+    const [redirecting, setRedirecting] = useState(false)
 
     useEffect(() => {
         console.log('🎉 Auth success page loaded')
         console.log('👤 User:', user?.email)
         console.log('⏳ Loading:', loading)
 
-        // Wait for auth state to be ready, then redirect
-        if (!loading) {
-            if (user) {
-                console.log('✅ User authenticated, redirecting to home...')
-                // Force redirect to home page
-                setTimeout(() => {
-                    window.location.href = '/'
-                }, 1000)
-            } else {
-                console.log('❌ No user found, redirecting to login...')
-                // No user, redirect to login
-                setTimeout(() => {
-                    window.location.href = '/login'
-                }, 1000)
-            }
+        const handleRedirect = async () => {
+            if (redirecting) return
+
+            // Force refresh session first
+            await refreshSession()
+
+            // Wait a bit for auth state to sync
+            setTimeout(async () => {
+                if (!loading) {
+                    if (user) {
+                        console.log('✅ User authenticated, redirecting to home...')
+                        setRedirecting(true)
+
+                        // Try multiple redirect methods
+                        try {
+                            // Method 1: Next.js router
+                            router.push('/')
+
+                            // Method 2: Fallback with window.location
+                            setTimeout(() => {
+                                window.location.href = '/'
+                            }, 500)
+
+                            // Method 3: Force reload if still not redirected
+                            setTimeout(() => {
+                                if (window.location.pathname === '/auth/success') {
+                                    window.location.replace('/')
+                                }
+                            }, 2000)
+                        } catch (error) {
+                            console.error('Redirect error:', error)
+                            window.location.href = '/'
+                        }
+                    } else {
+                        console.log('❌ No user found, redirecting to login...')
+                        router.push('/login')
+                        setTimeout(() => {
+                            window.location.href = '/login'
+                        }, 500)
+                    }
+                }
+            }, 500)
         }
-    }, [user, loading])
+
+        handleRedirect()
+    }, [user, loading, router, refreshSession, redirecting])
 
     return (
         <div style={{

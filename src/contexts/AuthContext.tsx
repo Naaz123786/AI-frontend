@@ -59,6 +59,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(session?.user ?? null)
         setLoading(false)
 
+        // Handle successful sign in events
+        if (event === 'SIGNED_IN' && session) {
+          console.log('🎉 User signed in successfully, checking for redirect...')
+
+          // Check if we're on auth pages and should redirect
+          const currentPath = window.location.pathname
+          const authPages = ['/login', '/signup', '/auth/callback', '/auth/success', '/auth/redirect']
+
+          if (authPages.includes(currentPath)) {
+            console.log('🔄 On auth page, redirecting to home...')
+            setTimeout(() => {
+              window.location.href = '/'
+            }, 500)
+          }
+        }
+
         // Force update localStorage to sync state
         if (session) {
           localStorage.setItem('supabase.auth.token', JSON.stringify(session))
