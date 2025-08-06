@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Microphone Test</title>
+</head>
+<body>
+    <h1>🎤 Quick Microphone Test</h1>
+    <button id="testBtn" style="padding: 20px; font-size: 18px;">Test Microphone</button>
+    <div id="results" style="margin-top: 20px; font-family: monospace;"></div>
+    <div id="instructions" style="margin-top: 20px; background: #f0f0f0; padding: 15px;">
+        <h3>How to fix microphone issues:</h3>
+        <ol>
+            <li>Right-click the speaker icon in your Windows taskbar</li>
+            <li>Click "Open Sound settings"</li>
+            <li>Under "Input", select your microphone</li>
+            <li>Click "Device properties"</li>
+            <li>Make sure the microphone is not muted</li>
+            <li>Adjust the volume to 70-100%</li>
+            <li>Test your microphone by speaking</li>
+            <li>Refresh the main page and try again</li>
+        </ol>
+    </div>
+
+    <script>
+        document.getElementById('testBtn').onclick = function() {
+            const results = document.getElementById('results');
+            results.innerHTML = 'Testing microphone...';
+            
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    results.innerHTML += '<br>✅ Microphone permission granted!';
+                    
+                    const audioContext = new AudioContext();
+                    const analyser = audioContext.createAnalyser();
+                    const microphone = audioContext.createMediaStreamSource(stream);
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    
+                    microphone.connect(analyser);
+                    analyser.fftSize = 256;
+                    
+                    let testCount = 0;
+                    const testInterval = setInterval(() => {
+                        analyser.getByteFrequencyData(dataArray);
+                        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                        results.innerHTML += '<br>🎤 Level: ' + average.toFixed(2) + ' (speak now!)';
+                        
+                        testCount++;
+                        if (testCount > 10) {
+                            clearInterval(testInterval);
+                            stream.getTracks().forEach(track => track.stop());
+                            audioContext.close();
+                            
+                            if (average > 10) {
+                                results.innerHTML += '<br>✅ Microphone is working!';
+                            } else {
+                                results.innerHTML += '<br>❌ Microphone seems muted or broken. Check Windows settings.';
+                            }
+                        }
+                    }, 200);
+                })
+                .catch(err => {
+                    results.innerHTML += '<br>❌ Error: ' + err.message;
+                    results.innerHTML += '<br>Please allow microphone access and try again.';
+                });
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+    "framework": "nextjs",
+    "buildCommand": "npm run build",
+    "devCommand": "npm run dev",
+    "installCommand": "npm install",
+    "functions": {
+        "app/**/*.tsx": {
+            "maxDuration": 30
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "https://your-render-app.onrender.com/:path*"
+        }
+    ]
+}
