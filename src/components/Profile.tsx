@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuestionHistory } from '@/hooks/useQuestionHistory';
 
@@ -87,18 +87,18 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      alert('New passwords do not match');
+      console.log('New passwords do not match');
       return;
     }
-    
+
     try {
       await updatePassword(passwordForm.newPassword);
-      alert('Password updated successfully!');
+      console.log('Password updated successfully!');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setShowPasswordChange(false);
     } catch (error) {
       console.error('Password update error:', error);
-      alert('Failed to update password. Please try again.');
+      console.log('Failed to update password. Please try again.');
     }
   };
 
@@ -122,11 +122,11 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
         github_url: profileForm.githubUrl,
         gender: selectedGender
       });
-      alert('Profile updated successfully!');
+      console.log('Profile updated successfully!');
       setEditingProfile(false);
     } catch (error) {
       console.error('Profile update error:', error);
-      alert('Failed to update profile. Please try again.');
+      console.log('Failed to update profile. Please try again.');
     }
   };
 
@@ -181,8 +181,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
             <div className="section-header">
               <h3 className="section-title">Personal Information</h3>
               {!editingProfile ? (
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="edit-profile-btn"
                   onClick={() => setEditingProfile(true)}
                 >
@@ -193,8 +193,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                 </button>
               ) : (
                 <div className="profile-edit-actions">
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="save-profile-btn"
                     onClick={handleProfileUpdate}
                   >
@@ -203,8 +203,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </svg>
                     Save Changes
                   </button>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="cancel-profile-btn"
                     onClick={cancelProfileEdit}
                   >
@@ -216,7 +216,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                 </div>
               )}
             </div>
-            
+
             {!editingProfile ? (
               /* Display Mode */
               <div className="profile-display-grid">
@@ -249,7 +249,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="profile-info-card">
                   <h4 className="info-card-title">Professional Information</h4>
                   <div className="info-grid">
@@ -263,7 +263,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="profile-info-card">
                   <h4 className="info-card-title">Social Links</h4>
                   <div className="info-grid">
@@ -303,8 +303,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Full Name
                       </label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={profileForm.fullName}
                         onChange={(e) => handleProfileFormChange('fullName', e.target.value)}
                         className="form-input"
@@ -318,8 +318,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Phone Number
                       </label>
-                      <input 
-                        type="tel" 
+                      <input
+                        type="tel"
                         value={profileForm.phoneNumber}
                         onChange={(e) => handleProfileFormChange('phoneNumber', e.target.value)}
                         className="form-input"
@@ -336,8 +336,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Date of Birth
                       </label>
-                      <input 
-                        type="date" 
+                      <input
+                        type="date"
                         value={profileForm.dateOfBirth}
                         onChange={(e) => handleProfileFormChange('dateOfBirth', e.target.value)}
                         className="form-input"
@@ -351,8 +351,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Location
                       </label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={profileForm.location}
                         onChange={(e) => handleProfileFormChange('location', e.target.value)}
                         className="form-input"
@@ -361,8 +361,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </div>
                     <div className="form-group">
                       <label className="form-label">Gender</label>
-                      <select 
-                        value={selectedGender} 
+                      <select
+                        value={selectedGender}
                         onChange={(e) => setSelectedGender(e.target.value)}
                         className="form-select"
                       >
@@ -376,7 +376,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="form-section">
                   <h4 className="form-section-title">Professional Information</h4>
                   <div className="profile-form-grid">
@@ -389,8 +389,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Occupation
                       </label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={profileForm.occupation}
                         onChange={(e) => handleProfileFormChange('occupation', e.target.value)}
                         className="form-input"
@@ -404,7 +404,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         Bio
                       </label>
-                      <textarea 
+                      <textarea
                         value={profileForm.bio}
                         onChange={(e) => handleProfileFormChange('bio', e.target.value)}
                         className="form-textarea"
@@ -414,7 +414,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="form-section">
                   <h4 className="form-section-title">Social Links</h4>
                   <div className="profile-form-grid">
@@ -425,8 +425,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         LinkedIn URL
                       </label>
-                      <input 
-                        type="url" 
+                      <input
+                        type="url"
                         value={profileForm.linkedinUrl}
                         onChange={(e) => handleProfileFormChange('linkedinUrl', e.target.value)}
                         className="form-input"
@@ -440,8 +440,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                         </svg>
                         GitHub URL
                       </label>
-                      <input 
-                        type="url" 
+                      <input
+                        type="url"
                         value={profileForm.githubUrl}
                         onChange={(e) => handleProfileFormChange('githubUrl', e.target.value)}
                         className="form-input"
@@ -458,7 +458,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
           <div className="profile-section">
             <h3 className="section-title">Security</h3>
             {!showPasswordChange ? (
-              <button 
+              <button
                 className="change-password-btn"
                 onClick={() => setShowPasswordChange(true)}
               >
@@ -471,7 +471,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                   <input
                     type="password"
                     value={passwordForm.currentPassword}
-                    onChange={(e) => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
                     className="form-input"
                     required
                   />
@@ -481,7 +481,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                   <input
                     type="password"
                     value={passwordForm.newPassword}
-                    onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
                     className="form-input"
                     required
                   />
@@ -491,7 +491,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                   <input
                     type="password"
                     value={passwordForm.confirmPassword}
-                    onChange={(e) => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                     className="form-input"
                     required
                   />
@@ -519,10 +519,10 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                 <strong>{questions.length}</strong> questions asked
               </span>
             </div>
-            
+
             {questions.length > 0 && (
               <div className="history-actions">
-                <button 
+                <button
                   className="clear-all-btn"
                   onClick={() => setShowDeleteConfirm('all')}
                 >
@@ -549,7 +549,7 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                             {formatDate(question.timestamp)}
                           </span>
                         </div>
-                        <button 
+                        <button
                           className="delete-question-btn"
                           onClick={() => setShowDeleteConfirm(question.id)}
                           title="Delete this question"
@@ -562,12 +562,12 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                       <div className="question-content">
                         <div className="question-text-container">
                           <p className="question-text">
-                            {question.question.length > 120 
-                              ? question.question.substring(0, 120) + '...' 
+                            {question.question.length > 120
+                              ? question.question.substring(0, 120) + '...'
                               : question.question}
                           </p>
                           {question.question.length > 120 && (
-                            <button 
+                            <button
                               className="expand-btn"
                               onClick={() => {
                                 const element = document.getElementById(`q-${question.id}`);
@@ -588,8 +588,8 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
                           <div className="question-answer">
                             <h4>Answer:</h4>
                             <p className="answer-preview">
-                              {question.answer.length > 200 
-                                ? question.answer.substring(0, 200) + '...' 
+                              {question.answer.length > 200
+                                ? question.answer.substring(0, 200) + '...'
                                 : question.answer}
                             </p>
                           </div>
@@ -624,19 +624,19 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
             <div className="delete-confirm-modal">
               <h3>Confirm Delete</h3>
               <p>
-                {showDeleteConfirm === 'all' 
+                {showDeleteConfirm === 'all'
                   ? 'Are you sure you want to clear all your question history? This action cannot be undone.'
                   : 'Are you sure you want to delete this question?'
                 }
               </p>
               <div className="delete-confirm-actions">
-                <button 
+                <button
                   className="cancel-btn"
                   onClick={() => setShowDeleteConfirm(null)}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   className="confirm-delete-btn"
                   onClick={() => showDeleteConfirm === 'all' ? handleClearHistory() : handleDeleteQuestion(showDeleteConfirm)}
                 >
@@ -653,17 +653,17 @@ export default function Profile({ isOpen, onClose }: ProfileProps) {
             <div className="delete-confirm-modal">
               <h3>Delete Account</h3>
               <p>
-                Are you sure you want to delete your account? This action is permanent and cannot be undone. 
+                Are you sure you want to delete your account? This action is permanent and cannot be undone.
                 All your data including question history will be lost.
               </p>
               <div className="delete-confirm-actions">
-                <button 
+                <button
                   className="cancel-btn"
                   onClick={() => setShowDeleteAccount(false)}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   className="confirm-delete-btn danger"
                   onClick={handleDeleteAccount}
                 >

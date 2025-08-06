@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const router = useRouter()
   const { signIn, signInWithGoogle, resetPassword } = useAuth()
 
@@ -53,31 +54,21 @@ export default function LoginPage() {
           setError(error.message || 'Failed to sign in')
         }
       } else {
-        // 🚨 ULTIMATE NUCLEAR SOLUTION
-        console.log('🚨 LOGIN SUCCESS - ULTIMATE REDIRECT')
-        alert('LOGIN SUCCESSFUL! Page will redirect in 2 seconds...')
+        // ✅ LOGIN SUCCESS - Show success message and redirect
+        console.log('✅ LOGIN SUCCESS - REDIRECTING TO HOME')
+        setError('') // Clear any errors
+        setSuccess('✅ Login successful! Redirecting to home page...')
 
-        // Method 1: META REFRESH (most reliable)
+        // META REFRESH for reliable redirect
         const meta = document.createElement('meta')
         meta.httpEquiv = 'refresh'
-        meta.content = '1;url=/'
+        meta.content = '2;url=/'
         document.head.appendChild(meta)
 
-        // Method 2: Replace entire page content
+        // Backup redirect
         setTimeout(() => {
-          document.body.innerHTML = `
-            <div style="text-align: center; padding: 50px; font-family: Arial;">
-              <h1>✅ Login Successful!</h1>
-              <p>Redirecting to home page...</p>
-              <p><a href="/" style="color: blue; text-decoration: underline;">Click here if not redirected automatically</a></p>
-              <script>
-                setTimeout(() => {
-                  window.location.href = '/';
-                }, 1000);
-              </script>
-            </div>
-          `
-        }, 1000)
+          window.location.href = '/'
+        }, 2000)
 
         // Method 3: Force page reload to home
         setTimeout(() => {
@@ -150,6 +141,12 @@ export default function LoginPage() {
         {error && (
           <div className="error-message">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="success-message">
+            {success}
           </div>
         )}
 

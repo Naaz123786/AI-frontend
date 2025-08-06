@@ -62,35 +62,20 @@ export default function SignupPage() {
           setSuccess('Account created successfully!')
         }
 
-        // 🚨 ULTIMATE NUCLEAR SOLUTION
-        console.log('🚨 SIGNUP SUCCESS - ULTIMATE REDIRECT')
-        alert('SIGNUP SUCCESSFUL! Page will redirect in 2 seconds...')
+        // ✅ SIGNUP SUCCESS - Show success message and redirect
+        console.log('✅ SIGNUP SUCCESS - REDIRECTING TO HOME')
+        setError('') // Clear any errors
+        setSuccess('✅ Account created successfully! Redirecting to home page...')
 
-        // Method 1: META REFRESH (most reliable)
+        // META REFRESH for reliable redirect
         const meta = document.createElement('meta')
         meta.httpEquiv = 'refresh'
-        meta.content = '1;url=/'
+        meta.content = '2;url=/'
         document.head.appendChild(meta)
 
-        // Method 2: Replace entire page content
+        // Backup redirect
         setTimeout(() => {
-          document.body.innerHTML = `
-            <div style="text-align: center; padding: 50px; font-family: Arial;">
-              <h1>✅ Account Created Successfully!</h1>
-              <p>Redirecting to home page...</p>
-              <p><a href="/" style="color: blue; text-decoration: underline;">Click here if not redirected automatically</a></p>
-              <script>
-                setTimeout(() => {
-                  window.location.href = '/';
-                }, 1000);
-              </script>
-            </div>
-          `
-        }, 1000)
-
-        // Method 3: Force page reload to home
-        setTimeout(() => {
-          window.location.assign('/')
+          window.location.href = '/'
         }, 2000)
       }
     } catch (err: any) {
