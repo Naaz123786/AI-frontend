@@ -53,25 +53,36 @@ export default function LoginPage() {
           setError(error.message || 'Failed to sign in')
         }
       } else {
-        // 🚨 NUCLEAR OPTION - FORCE REDIRECT
-        console.log('🚨 LOGIN SUCCESS - NUCLEAR REDIRECT')
+        // 🚨 ULTIMATE NUCLEAR SOLUTION
+        console.log('🚨 LOGIN SUCCESS - ULTIMATE REDIRECT')
+        alert('LOGIN SUCCESSFUL! Page will redirect in 2 seconds...')
 
-        // Method 1: Create form and submit
-        const form = document.createElement('form')
-        form.method = 'GET'
-        form.action = '/'
-        document.body.appendChild(form)
-        form.submit()
+        // Method 1: META REFRESH (most reliable)
+        const meta = document.createElement('meta')
+        meta.httpEquiv = 'refresh'
+        meta.content = '1;url=/'
+        document.head.appendChild(meta)
 
-        // Method 2: Backup redirect
+        // Method 2: Replace entire page content
         setTimeout(() => {
-          window.top!.location.href = '/'
-        }, 100)
+          document.body.innerHTML = `
+            <div style="text-align: center; padding: 50px; font-family: Arial;">
+              <h1>✅ Login Successful!</h1>
+              <p>Redirecting to home page...</p>
+              <p><a href="/" style="color: blue; text-decoration: underline;">Click here if not redirected automatically</a></p>
+              <script>
+                setTimeout(() => {
+                  window.location.href = '/';
+                }, 1000);
+              </script>
+            </div>
+          `
+        }, 1000)
 
-        // Method 3: Final backup
+        // Method 3: Force page reload to home
         setTimeout(() => {
-          document.location.href = '/'
-        }, 200)
+          window.location.assign('/')
+        }, 2000)
       }
     } catch (err: any) {
       console.error('Login error:', err)
