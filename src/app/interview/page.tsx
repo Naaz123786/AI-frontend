@@ -18,7 +18,9 @@ export default function InterviewPage() {
   // Initialize WebSocket for real-time communication with retry logic
   const connectWebSocket = useCallback(() => {
     try {
-      const ws = new WebSocket('ws://localhost:8000/ws');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-backend-aeve.onrender.com';
+      const wsUrl = apiUrl.replace('http', 'ws').replace('https', 'wss');
+      const ws = new WebSocket(`${wsUrl}/ws`);
 
       ws.onopen = () => {
         console.log('WebSocket connected');
@@ -64,6 +66,8 @@ export default function InterviewPage() {
 
   // Initialize Speech Recognition
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -180,7 +184,8 @@ export default function InterviewPage() {
         }));
       } else {
         // Fallback to HTTP request
-        const res = await fetch("http://localhost:8000/ask", {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-backend-aeve.onrender.com';
+        const res = await fetch(`${apiUrl}/ask`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question: currentQuestion }),
