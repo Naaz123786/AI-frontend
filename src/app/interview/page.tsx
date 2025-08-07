@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-function InterviewPage() {
+export default function InterviewPage() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [listening, setListening] = useState(false);
@@ -1242,5 +1242,3 @@ function InterviewPage() {
     </div>
   );
 }
-
-export default InterviewPage;
