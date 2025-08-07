@@ -235,19 +235,44 @@ export default function InterviewPage() {
                     const currentLoading = loadingRef.current;
                     const currentAutoSubmit = autoSubmitRef.current;
 
-                    console.log('🚀 Auto-submitting COMPLETE question after pause');
-                    console.log('🔍 Final conditions:', {
+                    console.log('🚀 AUTO-SUBMIT TRIGGERED - Final transcript ready');
+                    console.log('🔍 Submission conditions:', {
                       currentLiveMode,
                       currentLoading,
                       currentAutoSubmit,
-                      question: finalTranscript.trim()
+                      question: finalTranscript.trim(),
+                      questionLength: finalTranscript.trim().length
                     });
 
                     if (currentLiveMode && !currentLoading && currentAutoSubmit && finalTranscript.trim()) {
-                      console.log('✅ Submitting complete question:', finalTranscript.trim());
-                      askAI(finalTranscript.trim());
+                      console.log('✅ ALL CONDITIONS MET - Calling askAI now!');
+                      console.log('📝 Question being submitted:', finalTranscript.trim());
+
+                      // Stop ambient recognition during API call
+                      if (ambientRecognitionRef.current) {
+                        try {
+                          ambientRecognitionRef.current.stop();
+                          setAmbientListening(false);
+                          console.log('🛑 Stopped ambient recognition for API call');
+                        } catch (e) {
+                          console.log('Could not stop ambient recognition:', e);
+                        }
+                      }
+
+                      // Call askAI immediately
+                      askAI(finalTranscript.trim()).then(() => {
+                        console.log('✅ askAI call completed successfully');
+                      }).catch((error) => {
+                        console.error('❌ askAI call failed:', error);
+                      });
+
                     } else {
-                      console.log('❌ Auto-submit cancelled - conditions not met');
+                      console.log('❌ AUTO-SUBMIT BLOCKED - Conditions not met:', {
+                        currentLiveMode,
+                        currentLoading,
+                        currentAutoSubmit,
+                        hasQuestion: !!finalTranscript.trim()
+                      });
                     }
                   }, 1500); // Wait 1.5 seconds after final transcript for complete capture
 
