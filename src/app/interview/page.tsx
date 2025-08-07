@@ -1,149 +1,165 @@
 "use client";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from '@/contexts/AuthContext';
+import { useQuestionHistory } from '@/hooks/useQuestionHistory';
 
 export default function InterviewPage() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [listening, setListening] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [liveMode, setLiveMode] = useState(false);
-  const [recognitionRef, setRecognitionRef] = useState<any>(null);
-  const [wsRef, setWsRef] = useState<WebSocket | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
   const [inputMode, setInputMode] = useState<'none' | 'voice' | 'type'>('none');
-  const router = useRouter();
+  const [isTyping, setIsTyping] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [ambientListening, setAmbientListening] = useState(false);
+  const [detectedQuestion, setDetectedQuestion] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Initialize WebSocket for real-time communication with retry logic
+  // Refs for current state values to avoid closure issues
+  const liveModeRef = useRef(false);
+  const loadingRef = useRef(false);
+  const autoSubmitRef = useRef(true);
+  const audioEnabledRef = useRef(true);
+  const lastQuestionRef = useRef('');
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const ambientRecognitionRef = useRef<SpeechRecognition | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const router = useRouter();
+  const { user } = useAuth();
+  const { addQuestion } = useQuestionHistory(user?.id || null);
+
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (mobileMenuOpen && !target.closest('.header') && !target.closest('.mobile-dropdown')) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [mobileMenuOpen]);
+
+  // Initialize WebSocket connection with better error handling
   const connectWebSocket = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return;
+    }
+
     try {
+      console.log('Attempting to connect to WebSocket...');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-backend-aeve.onrender.com';
       const wsUrl = apiUrl.replace('http', 'ws').replace('https', 'wss');
       const ws = new WebSocket(`${wsUrl}/ws`);
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
-        setWsRef(ws);
+        console.log('✅ WebSocket connected successfully');
+        setWsConnected(true);
+        wsRef.current = ws;
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'answer') {
-          typeWriter(data.answer, () => {
-            speak(data.answer);
-          });
-          setLoading(false);
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'answer') {
+            if (question.trim()) {
+              addQuestion(question, data.answer);
+            }
+
+            typeWriter(data.answer, () => {
+              if (audioEnabledRef.current) {
+                speak(data.answer);
+              } else {
+                if (liveMode) {
+                  console.log('🧹 WebSocket: Audio disabled - clearing question immediately');
+                  setQuestion('');
+                  setDetectedQuestion(false);
+                }
+              }
+            });
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
         }
       };
 
       ws.onclose = (event) => {
-        console.log('WebSocket disconnected');
-        setWsRef(null);
-        // Don't retry automatically to avoid infinite loops
+        console.log('🔌 WebSocket disconnected. Using HTTP fallback.');
+        setWsConnected(false);
+        wsRef.current = null;
       };
 
       ws.onerror = (error) => {
-        console.warn('WebSocket error, falling back to HTTP requests');
-        setWsRef(null);
+        console.log('⚠️ WebSocket connection failed. Using HTTP fallback.');
+        setWsConnected(false);
+        wsRef.current = null;
       };
 
-      return ws;
     } catch (error) {
-      console.warn('Failed to create WebSocket, using HTTP fallback');
-      return null;
+      console.log('❌ WebSocket not available. Using HTTP fallback.');
+      setWsConnected(false);
     }
+  }, [audioEnabled]);
+
+  // Sync refs with state values to avoid closure issues
+  useEffect(() => {
+    liveModeRef.current = liveMode;
+  }, [liveMode]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    autoSubmitRef.current = true;
   }, []);
 
   useEffect(() => {
-    const ws = connectWebSocket();
+    audioEnabledRef.current = audioEnabled;
+  }, [audioEnabled]);
+
+  // Initialize WebSocket (disabled for now to prevent errors)
+  useEffect(() => {
+    setWsConnected(false);
+
     return () => {
-      if (ws) {
-        ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
       }
     };
-  }, [connectWebSocket]);
+  }, []);
 
-  // Initialize Speech Recognition
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
-      recognition.continuous = true;
-      recognition.interimResults = false;
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[event.results.length - 1][0].transcript;
-        setQuestion(transcript);
-
-        // Auto-submit in live mode
-        if (liveMode && transcript.trim()) {
-          setTimeout(() => {
-            askAI(transcript);
-          }, 1000);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setListening(false);
-        setInputMode('none');
-        // Don't restart automatically on error to avoid infinite loops
-      };
-
-      recognition.onend = () => {
-        if (liveMode) {
-          setTimeout(() => {
-            recognition.start();
-          }, 1000);
-        } else {
-          setListening(false);
-        }
-      };
-
-      setRecognitionRef(recognition);
-    }
-  }, [liveMode]);
-
-  // Toggle live mode
-  const toggleLiveMode = () => {
-    setLiveMode(!liveMode);
-    if (!liveMode) {
-      startListening();
-    } else {
-      stopListening();
-    }
+  // Format AI response with proper bullet points
+  const formatResponse = (text: string) => {
+    let formatted = text.replace(/(\d+\.)\s*/g, '\n• ');
+    formatted = formatted.replace(/^\s*[-*]\s+/gm, '• ');
+    formatted = formatted.replace(/^\s*•\s*/gm, '• ');
+    formatted = formatted.replace(/\n\s*\n/g, '\n');
+    formatted = formatted.trim();
+    formatted = formatted.replace(/\. (\d+\.|•)/g, '.\n$1');
+    return formatted;
   };
 
-  // Start listening
-  const startListening = () => {
-    if (recognitionRef) {
-      recognitionRef.start();
-      setListening(true);
-      setInputMode('voice');
-    }
-  };
-
-  // Stop listening
-  const stopListening = () => {
-    if (recognitionRef) {
-      recognitionRef.stop();
-      setListening(false);
-      setInputMode('none');
-    }
-  };
-
-  // Typewriter effect for answer
+  // Typewriter effect
   const typeWriter = (text: string, callback?: () => void) => {
     setIsTyping(true);
     setAnswer("");
+
+    const formattedText = formatResponse(text);
+
     let i = 0;
     const timer = setInterval(() => {
-      if (i < text.length) {
-        setAnswer(text.slice(0, i + 1));
+      if (i < formattedText.length) {
+        setAnswer(formattedText.slice(0, i + 1));
         i++;
       } else {
         clearInterval(timer);
@@ -153,37 +169,82 @@ export default function InterviewPage() {
     }, 30);
   };
 
-  // Text-to-speech
+  // Speech synthesis ref to control audio
+  const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const lastSpokenTextRef = useRef<string>("");
+
+  // Text-to-speech with real-time audio control
   const speak = (text: string) => {
-    if (!audioEnabled) {
-      console.log('Audio disabled, skipping speech');
+    if (!audioEnabledRef.current) {
+      console.log('🔇 Audio is disabled, skipping speech synthesis');
       return;
     }
-    console.log('Speaking:', text.substring(0, 50) + '...');
+
+    window.speechSynthesis.cancel();
+    lastSpokenTextRef.current = text;
+
     const synth = window.speechSynthesis;
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.9;
-    utter.pitch = 1;
-    synth.speak(utter);
+    const cleanText = text
+      .replace(/^\s*•\s*/gm, '')
+      .replace(/^\s*\d+\.\s*/gm, '')
+      .replace(/\n/g, '. ');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    utterance.volume = 0.8;
+
+    speechSynthRef.current = utterance;
+
+    utterance.onend = () => {
+      speechSynthRef.current = null;
+      console.log('🔊 Speech completed');
+      setQuestion('');
+      setDetectedQuestion(false);
+      lastQuestionRef.current = '';
+    };
+
+    utterance.onerror = (error) => {
+      speechSynthRef.current = null;
+      console.log('Speech error:', error);
+    };
+
+    synth.speak(utterance);
+  };
+
+  // Stop speech function immediately and prevent restart
+  const stopSpeech = () => {
+    window.speechSynthesis.cancel();
+    speechSynthRef.current = null;
   };
 
   // Send question to backend
   const askAI = async (customQuestion?: string) => {
     const currentQuestion = customQuestion || question;
-    if (!currentQuestion.trim()) return;
+    console.log('🚀 askAI called with question:', currentQuestion);
 
+    if (!currentQuestion.trim()) {
+      console.log('⚠️ Empty question, returning');
+      return;
+    }
+
+    if (window.speechSynthesis.speaking) {
+      stopSpeech();
+    }
+
+    console.log('✅ Starting AI request...');
     setLoading(true);
     setAnswer("");
+    setDetectedQuestion(false);
 
     try {
-      if (wsRef && wsRef.readyState === WebSocket.OPEN) {
-        // Use WebSocket for real-time communication
-        wsRef.send(JSON.stringify({
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
           type: 'question',
           question: currentQuestion
         }));
       } else {
-        // Fallback to HTTP request
+        console.log('🌐 Making HTTP request to backend...');
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-backend-aeve.onrender.com';
         const res = await fetch(`${apiUrl}/ask`, {
           method: "POST",
@@ -191,15 +252,23 @@ export default function InterviewPage() {
           body: JSON.stringify({ question: currentQuestion }),
         });
         const data = await res.json();
+        console.log('✅ Received response from backend:', data);
 
+        addQuestion(currentQuestion, data.answer);
+
+        console.log('📝 Starting typewriter effect...');
         typeWriter(data.answer, () => {
-          speak(data.answer);
+          if (audioEnabledRef.current) {
+            console.log('🔊 Starting speech synthesis if audio is enabled...');
+            speak(data.answer);
+          }
         });
         setLoading(false);
+        console.log('✅ AI request completed successfully');
       }
     } catch (error) {
-      console.error('Error calling AI:', error);
-      setAnswer("Sorry, there was an error getting the answer. Please try again.");
+      console.error('❌ Error calling AI:', error);
+      setAnswer(error.message.includes('failed') ? "Connection failed. Please ensure the server is running." : "Error occurred. Please retry.");
       setLoading(false);
     }
   };
@@ -214,17 +283,10 @@ export default function InterviewPage() {
 
   // Go back to home
   const goHome = () => {
-    if (wsRef) {
-      wsRef.close();
+    if (wsRef.current) {
+      wsRef.current.close();
     }
     router.push('/');
-  };
-
-  // Format answer with bullet points
-  const formatAnswer = (text: string) => {
-    return text.split('\n').map((line, index) => (
-      <p key={index}>{line}</p>
-    ));
   };
 
   return (
@@ -233,75 +295,73 @@ export default function InterviewPage() {
       <header className="header">
         <div className="header-content">
           <button onClick={goHome} className="home-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-            </svg>
-            Home
+            🏠 Home
           </button>
-
           <div className="brand">
-            <div className="brand-icon">AI</div>
-            <div className="brand-text">
-              <h1>Interview Assistant</h1>
-              <p>AI-powered interview companion</p>
-            </div>
+            <h1>🤖 Interview Assistant</h1>
           </div>
 
-          <div className="header-controls">
+          {/* Mobile Menu Button */}
+          <button
+            className="mobile-menu-btn"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            <span className={`hamburger ${mobileMenuOpen ? 'open' : ''}`}>
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+          </button>
+
+          {/* Desktop Controls */}
+          <div className="header-controls desktop-controls">
             <button
-              onClick={toggleLiveMode}
+              onClick={() => setLiveMode(!liveMode)}
               className={`live-btn ${liveMode ? 'active' : ''}`}
+              title={liveMode ? 'End Live Mode' : 'Start Live Mode'}
             >
               <div className={`live-dot ${liveMode ? 'active' : ''}`}></div>
-              {liveMode ? 'Stop Live' : 'Go Live'}
+              {liveMode ? 'End Live' : 'Go Live'}
             </button>
-
             <button
-              onClick={() => {
-                const newAudioState = !audioEnabled;
-                setAudioEnabled(newAudioState);
-                console.log('Audio toggled:', newAudioState);
-              }}
+              onClick={() => setAudioEnabled(!audioEnabled)}
               className={`audio-btn ${audioEnabled ? 'active' : ''}`}
               title={audioEnabled ? 'Disable Audio' : 'Enable Audio'}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                {audioEnabled ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M6 10l.01.01M13 5l.01.01M6 14l.01.01M13 19l.01.01M8 12a1 1 0 100-2 1 1 0 000 2z" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 5.586a2 2 0 112.828 2.828L21 21M1 1l4.586 4.586M12 1a3 3 0 00-3 3v8a3 3 0 01-3 3M8 17.086A7.001 7.001 0 0018 12.93" />
-                )}
-              </svg>
+              {audioEnabled ? '🔊' : '🔇'}
             </button>
           </div>
         </div>
-      </header>
 
-      {/* Status Bar */}
-      <div className="status-bar">
-        {liveMode && (
-          <div className="status-item live">
-            <div className="status-dot"></div>
-            Live Mode
+        {/* Mobile Dropdown Menu */}
+        {mobileMenuOpen && (
+          <div className="mobile-dropdown open">
+            <div className="mobile-menu-content">
+              <button
+                onClick={() => {
+                  setLiveMode(!liveMode);
+                  setMobileMenuOpen(false);
+                }}
+                className={`mobile-menu-item ${liveMode ? 'active' : ''}`}
+              >
+                <div className={`live-dot ${liveMode ? 'active' : ''}`}></div>
+                <span>{liveMode ? '🔴 End Live Mode' : '🟢 Start Live Mode'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setAudioEnabled(!audioEnabled);
+                  setMobileMenuOpen(false);
+                }}
+                className={`mobile-menu-item ${audioEnabled ? 'active' : ''}`}
+              >
+                <span>{audioEnabled ? '🔊 Audio On' : '🔇 Audio Off'}</span>
+              </button>
+            </div>
           </div>
         )}
-        {listening && (
-          <div className="status-item listening">
-            <div className="status-dot"></div>
-            Listening
-          </div>
-        )}
-        {wsRef && wsRef.readyState === WebSocket.OPEN && (
-          <div className="status-item connected">
-            <div className="status-dot"></div>
-            Connected
-          </div>
-        )}
-        <div className={`status-item audio ${audioEnabled ? 'active' : 'inactive'}`}>
-          <div className="status-dot"></div>
-          {audioEnabled ? 'Audio On' : 'Audio Off'}
-        </div>
-      </div>
+      </header>
 
       {/* Main Content */}
       <main className="main-content">
@@ -316,7 +376,7 @@ export default function InterviewPage() {
           </h2>
           <p className="welcome-subtitle">
             {liveMode
-              ? "Speak naturally and get instant answers. Perfect for live interviews!"
+              ? "Live mode ready for interview questions!"
               : "Ask any interview question and get structured, professional answers instantly."
             }
           </p>
@@ -325,84 +385,25 @@ export default function InterviewPage() {
         {/* Input Section */}
         <div className="input-section">
           <div className="input-container">
-            {inputMode === 'type' && (
-              <textarea
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={loading}
-                placeholder={liveMode ? "Type your question (works in live mode too)..." : "Type your interview question here..."}
-                className="question-input"
-                rows={3}
-              />
-            )}
-
-            {listening && (
-              <div className="listening-indicator">
-                <div className="wave"></div>
-                <div className="wave"></div>
-                <div className="wave"></div>
-              </div>
-            )}
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+              placeholder="Type your interview question here..."
+              className="question-input"
+              rows={3}
+            />
           </div>
 
-          {/* Combined Input Controls */}
-          <div className="input-controls-container">
-            <div className="input-controls">
-              <button
-                onClick={() => {
-                  if (inputMode === 'voice') {
-                    stopListening();
-                  } else {
-                    startListening();
-                  }
-                }}
-                disabled={loading}
-                className={`control-btn voice-btn ${inputMode === 'voice' ? 'active' : ''}`}
-                title="Voice Input"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
-                </svg>
-                {inputMode === 'voice' ? 'Stop' : 'Voice'}
-              </button>
-
-              <button
-                onClick={() => {
-                  if (inputMode === 'type') {
-                    if (question.trim()) {
-                      askAI();
-                    } else {
-                      setInputMode('none');
-                    }
-                  } else {
-                    setInputMode('type');
-                  }
-                }}
-                disabled={loading}
-                className={`control-btn type-btn ${inputMode === 'type' ? 'active' : ''}`}
-                title={inputMode === 'type' ? (question.trim() ? 'Send Message' : 'Close Input') : 'Text Input'}
-              >
-                {loading ? (
-                  <div className="spinner-small"></div>
-                ) : inputMode === 'type' ? (
-                  question.trim() ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  )
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                )
-                {inputMode === 'type' ? (question.trim() ? 'Send' : 'Close') : 'Type'}
-              </button>
-            </div>
+          <div className="input-controls">
+            <button
+              onClick={() => askAI()}
+              disabled={loading || !question.trim()}
+              className="submit-btn"
+            >
+              {loading ? 'Generating...' : 'Ask AI'}
+            </button>
           </div>
         </div>
 
@@ -427,17 +428,18 @@ export default function InterviewPage() {
               </div>
             ) : answer ? (
               <div className="answer-display">
-                {formatAnswer(answer)}
+                <div className="answer-text">
+                  {answer.split('\n').map((line, index) => (
+                    <div key={index} className="answer-line">
+                      {line}
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">🎯</div>
-                <p>
-                  {liveMode
-                    ? "Ready to assist! Start speaking your question..."
-                    : "Ask your interview question to get started!"
-                  }
-                </p>
+                <p>Ask your interview question to get started!</p>
               </div>
             )}
           </div>
@@ -449,19 +451,19 @@ export default function InterviewPage() {
           <div className="tips-grid">
             <div className="tip-item">
               <div className="tip-dot"></div>
-              <p>Use Live Mode for real-time interview assistance</p>
+              <p>Live Mode for continuous listening</p>
             </div>
             <div className="tip-item">
               <div className="tip-dot"></div>
-              <p>Enable audio for hands-free operation</p>
+              <p>Audio responses for hands-free operation</p>
             </div>
             <div className="tip-item">
               <div className="tip-dot"></div>
-              <p>Perfect for mobile use during laptop interviews</p>
+              <p>Mobile responsive for phone use</p>
             </div>
             <div className="tip-item">
               <div className="tip-dot"></div>
-              <p>Press Enter to submit, Shift+Enter for new line</p>
+              <p>Press Enter to submit questions</p>
             </div>
           </div>
         </div>
@@ -471,34 +473,23 @@ export default function InterviewPage() {
         .interview-page {
           min-height: 100vh;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          position: relative;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
-
-        .interview-page::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background:
-            radial-gradient(circle at 20% 50%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
-            radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
-            radial-gradient(circle at 40% 80%, rgba(120, 119, 198, 0.2) 0%, transparent 50%);
-          z-index: 1;
-        }
-
+        
         .header {
           background: rgba(255, 255, 255, 0.15);
           backdrop-filter: blur(20px);
           border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-          position: sticky;
+          padding: 1rem 0;
+          position: fixed;
           top: 0;
+          left: 0;
+          right: 0;
+          width: 100%;
           z-index: 100;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
-
+        
         .header-content {
           max-width: 1200px;
           margin: 0 auto;
@@ -506,199 +497,205 @@ export default function InterviewPage() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          height: 4rem;
           position: relative;
-          z-index: 2;
         }
 
+        .mobile-menu-btn {
+          display: none;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 12px;
+          padding: 0.5rem;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          width: 44px;
+          height: 44px;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          z-index: 101;
+        }
+
+        .hamburger {
+          display: flex;
+          flex-direction: column;
+          width: 20px;
+          height: 16px;
+          position: relative;
+        }
+
+        .hamburger span {
+          display: block;
+          height: 2px;
+          width: 100%;
+          background: white;
+          border-radius: 1px;
+          transition: all 0.3s ease;
+          position: absolute;
+        }
+
+        .hamburger span:nth-child(1) {
+          top: 0;
+        }
+
+        .hamburger span:nth-child(2) {
+          top: 7px;
+        }
+
+        .hamburger span:nth-child(3) {
+          top: 14px;
+        }
+
+        .mobile-dropdown {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          background: rgba(0, 0, 0, 0.9);
+          backdrop-filter: blur(20px);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+          transform: translateY(-100%);
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.3s ease;
+          z-index: 99;
+          display: none;
+        }
+
+        .mobile-dropdown.open {
+          transform: translateY(0);
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .mobile-menu-content {
+          padding: 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .mobile-menu-item {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          padding: 1rem;
+          margin-bottom: 0.5rem;
+          color: white;
+          font-size: 1rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          min-height: 48px;
+          justify-content: flex-start;
+        }
+        
         .home-btn {
+          padding: 0.6rem 1.2rem;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 12px;
+          color: white;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-size: 0.9rem;
+          font-weight: 600;
           display: flex;
           align-items: center;
           gap: 0.5rem;
-          padding: 0.5rem 1rem;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 0.5rem;
-          color: white;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
           backdrop-filter: blur(10px);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          flex-shrink: 0;
         }
 
         .home-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-          transform: translateY(-2px);
+          background: rgba(255, 255, 255, 0.3);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
-
+        
         .brand {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
+          flex: 1;
+          text-align: center;
+          min-width: 0;
         }
 
-        .brand-icon {
-          width: 2.5rem;
-          height: 2.5rem;
-          background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-          border-radius: 0.75rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: bold;
-          font-size: 1.1rem;
-        }
-
-        .brand-text h1 {
+        .brand h1 {
           margin: 0;
-          font-size: 1.25rem;
+          color: white;
+          font-size: 1.4rem;
           font-weight: 700;
-          color: white;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
-        .brand-text p {
-          margin: 0;
-          font-size: 0.875rem;
-          color: rgba(255, 255, 255, 0.8);
-        }
-
-        .header-controls {
+        .desktop-controls {
           display: flex;
           align-items: center;
           gap: 0.75rem;
+          flex-shrink: 0;
         }
 
-        .live-btn {
+        .live-btn, .audio-btn {
+          padding: 0.6rem 1rem;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 12px;
+          color: white;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-size: 0.85rem;
+          font-weight: 600;
           display: flex;
           align-items: center;
           gap: 0.5rem;
-          padding: 0.5rem 1rem;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 0.5rem;
-          background: rgba(255, 255, 255, 0.1);
-          color: white;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
           backdrop-filter: blur(10px);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .live-btn:hover, .audio-btn:hover {
+          background: rgba(255, 255, 255, 0.3);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         .live-btn.active {
-          background: #dc2626;
-          color: white;
-          border-color: #dc2626;
-        }
-
-        .live-dot {
-          width: 0.5rem;
-          height: 0.5rem;
-          background: rgba(255, 255, 255, 0.6);
-          border-radius: 50%;
-        }
-
-        .live-dot.active {
-          background: white;
-          animation: pulse 1s infinite;
-        }
-
-        .audio-btn {
-          padding: 0.5rem;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 0.5rem;
-          background: rgba(255, 255, 255, 0.1);
-          color: white;
-          cursor: pointer;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
-        }
-
-        .audio-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-          transform: translateY(-1px);
+          background: rgba(34, 197, 94, 0.3);
+          border-color: rgba(34, 197, 94, 0.5);
+          color: #22c55e;
         }
 
         .audio-btn.active {
-          background: #10b981;
-          color: white;
-          border-color: #10b981;
+          background: rgba(34, 197, 94, 0.3);
+          border-color: rgba(34, 197, 94, 0.5);
+          color: #22c55e;
         }
 
-        .audio-btn:not(.active) {
-          background: #dc2626;
-          color: white;
-          border-color: #dc2626;
-        }
-
-        .status-bar {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          padding: 1rem;
-          max-width: 1200px;
-          margin: 0 auto;
-          align-items: center;
-        }
-
-        @media (min-width: 768px) {
-          .status-bar {
-            flex-direction: row;
-            flex-wrap: wrap;
-            justify-content: center;
-          }
-        }
-
-        .status-item {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.25rem 0.75rem;
-          border-radius: 9999px;
-          font-size: 0.875rem;
-          font-weight: 500;
-        }
-
-        .status-item.live {
-          background: #fef2f2;
-          color: #dc2626;
-        }
-
-        .status-item.listening {
-          background: #f0fdf4;
-          color: #16a34a;
-        }
-
-        .status-item.connected {
-          background: #eff6ff;
-          color: #2563eb;
-        }
-
-        .status-item.audio.active {
-          background: #f0fdf4;
-          color: #16a34a;
-        }
-
-        .status-item.audio.inactive {
-          background: #fef2f2;
-          color: #dc2626;
-        }
-
-        .status-dot {
-          width: 0.5rem;
-          height: 0.5rem;
+        .live-dot {
+          width: 8px;
+          height: 8px;
+          background: #ef4444;
           border-radius: 50%;
-          background: currentColor;
-          animation: pulse 2s infinite;
+          animation: pulse 1s infinite;
         }
 
+        .live-dot:not(.active) {
+          background: rgba(255, 255, 255, 0.5);
+          animation: none;
+        }
+        
         .main-content {
+          padding: 2rem;
+          padding-top: 120px;
           max-width: 1200px;
           margin: 0 auto;
-          padding: 2rem 1rem;
-          position: relative;
-          z-index: 2;
         }
-
+        
         .welcome-section {
           text-align: center;
           margin-bottom: 2rem;
@@ -713,256 +710,85 @@ export default function InterviewPage() {
 
         .welcome-subtitle {
           font-size: 1.125rem;
-          color: rgba(255, 255, 255, 0.8);
-          max-width: 600px;
-          margin: 0 auto;
-          line-height: 1.6;
+          color: rgba(255, 255, 255, 0.9);
+          margin-bottom: 0;
         }
-
+        
         .input-section {
-          background: rgba(255, 255, 255, 0.15);
-          border: 1px solid rgba(255, 255, 255, 0.3);
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(10px);
           border-radius: 1rem;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
           padding: 1.5rem;
-          margin-bottom: 2rem;
-          backdrop-filter: blur(25px);
+          margin: 0 auto 1.5rem;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          max-width: 650px;
         }
-
-        .input-container {
-          position: relative;
-          margin-bottom: 0.5rem;
-        }
-
+        
         .question-input {
           width: 100%;
-          padding: 1rem;
-          padding-right: 8rem;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 0.75rem;
-          font-size: 1rem;
-          line-height: 1.5;
-          resize: vertical;
-          outline: none;
-          transition: all 0.2s;
-          background: rgba(255, 255, 255, 0.1);
-          color: white;
-          backdrop-filter: blur(10px);
-          min-height: 100px;
-        }
-
-        .question-input::placeholder {
-          color: rgba(255, 255, 255, 0.6);
-        }
-
-        .question-input:focus {
-          border-color: rgba(255, 255, 255, 0.4);
+          min-height: 80px;
+          padding: 0.75rem;
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 0.5rem;
           background: rgba(255, 255, 255, 0.15);
-          box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
-        }
-
-        .listening-indicator {
-          position: absolute;
-          top: 1rem;
-          right: 1rem;
-          display: flex;
-          gap: 0.25rem;
-        }
-
-        .wave {
-          width: 0.25rem;
-          height: 1.5rem;
-          background: #3b82f6;
-          border-radius: 9999px;
-          animation: wave 1s ease-in-out infinite;
-        }
-
-        .wave:nth-child(2) {
-          animation-delay: 0.2s;
-        }
-
-        .wave:nth-child(3) {
-          animation-delay: 0.4s;
-        }
-
-        .inline-buttons {
-          position: absolute;
-          bottom: 1rem;
-          right: 1rem;
-          display: flex;
-          gap: 0.5rem;
-          z-index: 10;
-        }
-
-        .inline-btn {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 0.25rem;
-          width: 3rem;
-          height: 3rem;
-          border: none;
-          border-radius: 0.75rem;
-          font-size: 0.75rem;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
+          color: white;
+          font-size: 0.95rem;
+          resize: vertical;
+          margin-bottom: 0.75rem;
           backdrop-filter: blur(10px);
         }
-
-        .voice-btn {
-          background: rgba(59, 130, 246, 0.9);
-          color: white;
-          border: 1px solid rgba(59, 130, 246, 0.4);
+        
+        .question-input::placeholder {
+          color: rgba(255, 255, 255, 0.7);
         }
-
-        .voice-btn:hover {
-          background: rgba(59, 130, 246, 1);
-          transform: translateY(-1px);
-          box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-        }
-
-        .voice-btn.active {
-          background: rgba(29, 78, 216, 1);
-          animation: pulse 1s infinite;
-        }
-
-        .type-btn {
-          background: rgba(16, 185, 129, 0.9);
-          color: white;
-          border: 1px solid rgba(16, 185, 129, 0.4);
-        }
-
-        .type-btn:hover {
-          background: rgba(16, 185, 129, 1);
-          transform: translateY(-1px);
-          box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-        }
-
-        .input-controls-container {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          padding: 0.5rem 0;
+        
+        .question-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          background: rgba(255, 255, 255, 0.2);
         }
 
         .input-controls {
           display: flex;
-          flex-direction: row;
-          gap: 0.5rem;
-          align-items: center;
           justify-content: center;
         }
-
-        .control-btn {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.375rem;
-          padding: 0.5rem 1rem;
-          border: none;
-          border-radius: 0.5rem;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
-          font-size: 0.8rem;
-          min-width: 80px;
-          white-space: nowrap;
-        }
-
-        .control-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        .control-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-          transform: none;
-        }
-
-        .control-btn.active {
-          animation: pulse 1s infinite;
-        }
-
-        .inline-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-          transform: none;
-        }
-
-        .spinner-small {
-          width: 1rem;
-          height: 1rem;
-          border: 2px solid rgba(255, 255, 255, 0.2);
-          border-top: 2px solid white;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        }
-
-        .input-helper-text {
-          color: rgba(255, 255, 255, 0.6);
-          font-size: 0.875rem;
-          text-align: center;
-          margin: 0;
-        }
-
-        .action-buttons {
-          display: flex;
-          gap: 1rem;
-        }
-
-        .action-btn {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
+        
+        .submit-btn {
           padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 0.75rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .mic-btn {
           background: #3b82f6;
           color: white;
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          font-size: 1rem;
+          font-weight: 500;
+          transition: all 0.2s ease;
         }
 
-        .mic-btn:hover {
+        .submit-btn:hover {
           background: #2563eb;
+          transform: translateY(-1px);
         }
-
-        .mic-btn.active {
-          background: #1d4ed8;
-        }
-
-        .send-btn {
-          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-          color: white;
-        }
-
-        .send-btn:hover {
-          background: linear-gradient(135deg, #059669 0%, #047857 100%);
-        }
-
-        .action-btn:disabled {
-          opacity: 0.5;
+        
+        .submit-btn:disabled {
+          opacity: 0.6;
           cursor: not-allowed;
+          transform: none;
         }
-
+        
         .answer-section {
-          background: rgba(255, 255, 255, 0.15);
-          border: 1px solid rgba(255, 255, 255, 0.3);
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(10px);
           border-radius: 1rem;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-          padding: 1.5rem;
-          margin-bottom: 2rem;
-          backdrop-filter: blur(25px);
+          padding: 2rem;
+          margin: 0 auto;
+          max-width: 650px;
+          width: 85%;
+        }
+        
+        .answer-section h3 {
+          margin: 0 0 1rem 0;
+          color: white;
         }
 
         .answer-header {
@@ -972,51 +798,62 @@ export default function InterviewPage() {
           margin-bottom: 1rem;
         }
 
-        .answer-header h3 {
-          margin: 0;
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: white;
-        }
-
         .typing-indicator {
           display: flex;
           gap: 0.25rem;
         }
 
-        .dot {
+        .typing-indicator .dot {
           width: 0.5rem;
           height: 0.5rem;
-          background: #3b82f6;
+          background: rgba(255, 255, 255, 0.6);
           border-radius: 50%;
-          animation: bounce 1s infinite;
+          animation: bounce 1.4s infinite;
         }
 
-        .dot:nth-child(2) {
+        .typing-indicator .dot:nth-child(2) {
           animation-delay: 0.2s;
         }
 
-        .dot:nth-child(3) {
+        .typing-indicator .dot:nth-child(3) {
           animation-delay: 0.4s;
         }
-
+        
         .answer-content {
-          min-height: 12rem;
+          min-height: 400px;
         }
-
-        .loading-state {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 8rem;
-          gap: 1rem;
+        
+        .answer-display {
           color: white;
+        }
+        
+        .answer-text {
+          line-height: 1.6;
+        }
+        
+        .answer-line {
+          margin-bottom: 0.5rem;
+          color: white;
+          font-size: 1rem;
+        }
+        
+        .answer-line:empty {
+          margin-bottom: 0.25rem;
+        }
+        
+        .answer-line:last-child {
+          margin-bottom: 0;
+        }
+        
+        .loading-state, .empty-state {
+          text-align: center;
+          color: rgba(255, 255, 255, 0.8);
+          padding: 2rem;
         }
 
         .spinner {
-          width: 2rem;
-          height: 2rem;
+          width: 1.5rem;
+          height: 1.5rem;
           border: 2px solid rgba(255, 255, 255, 0.2);
           border-top: 2px solid white;
           border-radius: 50%;
@@ -1039,54 +876,12 @@ export default function InterviewPage() {
           margin-bottom: 1rem;
         }
 
-        .answer-display {
-          space-y: 1rem;
-        }
-
-        .answer-point {
-          display: flex;
-          align-items: flex-start;
-          gap: 0.75rem;
-          padding: 1rem;
-          background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-          border-left: 4px solid #3b82f6;
-          border-radius: 0.5rem;
-          margin-bottom: 0.75rem;
-        }
-
-        .point-number {
-          width: 1.5rem;
-          height: 1.5rem;
-          background: #3b82f6;
-          color: white;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 700;
-          font-size: 0.875rem;
-          flex-shrink: 0;
-        }
-
-        .point-text {
-          flex: 1;
-          font-weight: 500;
-          color: #1e293b;
-          line-height: 1.6;
-          text-align: left;
-        }
-
-        .answer-text {
-          color: rgba(255, 255, 255, 0.9);
-          line-height: 1.6;
-          margin-bottom: 0.75rem;
-        }
-
         .tips-section {
           background: rgba(255, 255, 255, 0.05);
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 1rem;
           padding: 1.5rem;
+          margin-top: 2rem;
           backdrop-filter: blur(10px);
         }
 
@@ -1129,11 +924,6 @@ export default function InterviewPage() {
           50% { opacity: 0.5; }
         }
 
-        @keyframes wave {
-          0%, 100% { transform: scaleY(1); }
-          50% { transform: scaleY(1.5); }
-        }
-
         @keyframes bounce {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-0.5rem); }
@@ -1144,103 +934,39 @@ export default function InterviewPage() {
           100% { transform: rotate(360deg); }
         }
 
-        /* Responsive Design */
+        /* Mobile Responsive */
         @media (max-width: 768px) {
+          .mobile-menu-btn {
+            display: flex !important;
+          }
+
+          .desktop-controls {
+            display: none !important;
+          }
+
+          .mobile-dropdown {
+            display: block;
+          }
+
           .header-content {
-            padding: 0 0.5rem;
+            padding: 0 1rem;
           }
 
-          .brand-text h1 {
-            font-size: 1.125rem;
-          }
-
-          .brand-text p {
-            display: none;
+          .brand h1 {
+            font-size: 1.1rem;
           }
 
           .welcome-title {
-            font-size: 2rem;
-          }
-
-          .welcome-subtitle {
-            font-size: 1rem;
+            font-size: 1.8rem;
           }
 
           .main-content {
-            padding: 1rem 0.5rem;
-          }
-
-          .input-section, .answer-section {
             padding: 1rem;
-          }
-
-          .question-input {
-            padding-right: 7rem;
-          }
-
-          .inline-buttons {
-            bottom: 0.75rem;
-            right: 0.75rem;
-            gap: 0.25rem;
-          }
-
-          .inline-btn {
-            width: 2.5rem;
-            height: 2.5rem;
-            font-size: 0.7rem;
-          }
-
-          .action-buttons {
-            flex-direction: column;
+            padding-top: 100px;
           }
 
           .tips-grid {
             grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .header-content {
-            height: 3.5rem;
-          }
-
-          .home-btn span {
-            display: none;
-          }
-
-          .live-btn span {
-            display: none;
-          }
-
-          .welcome-title {
-            font-size: 1.5rem;
-          }
-
-          .brand-icon {
-            width: 2rem;
-            height: 2rem;
-            font-size: 1rem;
-          }
-
-          .brand-text h1 {
-            font-size: 1rem;
-          }
-
-          .question-input {
-            padding-right: 6rem;
-            min-height: 80px;
-          }
-
-          .inline-buttons {
-            bottom: 0.5rem;
-            right: 0.5rem;
-            gap: 0.25rem;
-          }
-
-          .inline-btn {
-            width: 2rem;
-            height: 2rem;
-            font-size: 0.6rem;
           }
         }
       `}</style>
